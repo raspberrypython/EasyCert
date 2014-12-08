@@ -6,22 +6,25 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"runtime/debug"
 	"strings"
 )
 
 var (
-	flagCertificateAuthorityName = flag.String("cn", "", "")
-	flagCertificateAuthorityFile = flag.String("cf", "", "")
-	flagHostName                 = flag.String("h", "", "")
+	flagCertificateAuthorityName    = flag.String("cn", "", "")
+	flagCertificateAuthorityKeyFile = flag.String("cakey", "", "")
+	flagCertificateAuthorityCerFile = flag.String("cacer", "", "")
+	flagFQDN                        = flag.String("fqdn", "", "")
 )
 
 var usage = `Usage: EasyCert [options...]
 
 Options:
-  -cn Certificate Authority Name (can be any name, but should reflect your company name.)
-  -cf Certificate Authority File (use existing CA file, can not be used with -cn.)
-  -h  Hostname of TLS server to install the private cert/key
+  -cn      Certificate Authority Name (can be any name, but should reflect your company name.)
+  -cakey   Certificate Authority Key File (use existing CA Key file, can not be used with -cn.)
+  -cacer   Certificate Authority Key File (use existing CA Cer file, can not be used with -cn.)
+  -fqdn    Fully qualified domain name of TLS server to install the private cert/key
 `
 
 func main() {
@@ -31,68 +34,82 @@ func main() {
 
 	flag.Parse()
 
-	certName := *flagCertificateAuthorityName
-	certFile := *flagCertificateAuthorityFile
-	hostName := *flagHostName
+	caName := *flagCertificateAuthorityName
+	caKeyFile := *flagCertificateAuthorityKeyFile
+	caCerFile := *flagCertificateAuthorityCerFile
+	fqdn := *flagFQDN
 
-	if certName != "" && certFile != "" {
-		usageAndExit("There is no need to supply -cn (certificate name) when a -cf (certificate file) is already available")
+	if caName != "" && (caKeyFile != "" || caCerFile != "") {
+		usageAndExit("There is no need to supply -cn (certificate authority name) when a -cakey (certificate authority key file) or -cacer (certificate authority cer file) is already available")
 	}
 
-	if certFile == "" {
-		if certName == "" || hostName == "" {
-			usageAndExit("You must supply both a -cn (certificate name) and -h (host name) parameter")
+	if caKeyFile == "" && caCerFile == "" {
+		if caName == "" || fqdn == "" {
+			usageAndExit("You must supply both a -cn (certificate authority name) and -fqdn (fully qualified domain name) parameter")
 		}
-	} else if certName == "" {
-		if certFile == "" || hostName == "" {
-			usageAndExit("You must supply both a -cf (certificate file) and -h (host name) parameter")
+	} else if caName == "" {
+		if caKeyFile == "" || caCerFile == "" || fqdn == "" {
+			usageAndExit("You must supply a -cakey (certificate authority key file), -cacer (certificate authority cer file) and -fqdn (fully qualified domain name) parameter")
 		}
-		if _, err := os.Stat(certFile); os.IsNotExist(err) {
-			usageAndExit("The -cf (certificate file) can not be found")
+		if _, err := os.Stat(caKeyFile); os.IsNotExist(err) {
+			usageAndExit("The -cakey (certificate authority key file) can not be found")
+		}
+		if _, err := os.Stat(caCerFile); os.IsNotExist(err) {
+			usageAndExit("The -cacer (certificate authority cer file) can not be found")
 		}
 	}
 
-	if certFile == "" {
-		certFile := createPrivateCA(certName)
-		log.Println("Private root certificate created: ", certFile+".cer")
+	if caKeyFile == "" && caCerFile == "" {
+		caKeyFile, caCerFile = createPrivateCA(caName)
+		log.Println("Private root certificate created: ", caCerFile)
+		log.Println("Private root key created: ", caKeyFile)
 	}
 
-	hostFile := createServerCertKey(hostName, certFile)
-	log.Println("Web server certificate created: ", hostFile+".cer")
-	log.Println("Web server key created: ", hostFile+".key")
+	fqdnKeyFile, fqdnCerFile := createServerCertKey(fqdn, caKeyFile, caCerFile)
+	log.Println("Web server certificate created: ", fqdnCerFile)
+	log.Println("Web server key created: ", fqdnKeyFile)
 }
 
-func createPrivateCA(certificateAuthorityName string) string {
-	certificateAuthorityFile := strings.Replace(certificateAuthorityName, ".", "_", -1) + "_CA"
-	_, err := callCommand("openssl", "genrsa", "-out", certificateAuthorityFile+".key", "2048")
+func createPrivateCA(certificateAuthority string) (string, string) {
+	caName := strings.Replace(certificateAuthority, ".", "_", -1) + "_CA"
+	os.Mkdir(caName, 0700)
+	caKeyFile := path.Join(caName, caName+".key")
+	caCerFile := path.Join(caName, caName+".cer")
+
+	_, err := callCommand("openssl", "genrsa", "-out", caKeyFile, "2048")
 	if err != nil {
 		log.Fatal("Could not create private Certificate Authority key")
 	}
 
-	_, err = callCommand("openssl", "req", "-x509", "-new", "-key", certificateAuthorityFile+".key", "-out", certificateAuthorityFile+".cer", "-days", "730", "-subj", "/CN=\""+certificateAuthorityName+"\"")
+	_, err = callCommand("openssl", "req", "-x509", "-new", "-key", caKeyFile, "-out", caCerFile, "-days", "730", "-subj", "/CN=\""+certificateAuthority+"\"")
 	if err != nil {
 		log.Fatal("Could not create private Certificate Authority certificate")
 	}
-	return certificateAuthorityFile
+	return caKeyFile, caCerFile
 }
 
-func createServerCertKey(host, certFile string) string {
-	hostFile := strings.Replace(host, ".", "_", -1)
-	_, err := callCommand("openssl", "genrsa", "-out", hostFile+".key", "2048")
+func createServerCertKey(fqdn, caKeyFile string, caCerFile string) (string, string) {
+	fqdnName := strings.Replace(fqdn, ".", "_", -1)
+	os.Mkdir(fqdnName, 0700)
+	fqdnKeyFile := path.Join(fqdnName, fqdnName+".key")
+	fqdnCerFile := path.Join(fqdnName, fqdnName+".cer")
+	fqdnReqFile := path.Join(fqdnName, fqdnName+".req")
+
+	_, err := callCommand("openssl", "genrsa", "-out", fqdnKeyFile, "2048")
 	if err != nil {
 		log.Fatal("Could not create private server key")
 	}
 
-	_, err = callCommand("openssl", "req", "-new", "-out", hostFile+".req", "-key", hostFile+".key", "-subj", "/CN="+host)
+	_, err = callCommand("openssl", "req", "-new", "-out", fqdnReqFile, "-key", fqdnKeyFile, "-subj", "/CN="+fqdn)
 	if err != nil {
 		log.Fatal("Could not create private server certificate signing request")
 	}
 
-	_, err = callCommand("openssl", "x509", "-req", "-in", hostFile+".req", "-out", hostFile+".cer", "-CAkey", certFile+".key", "-CA", certFile+".cer", "-days", "365", "-CAcreateserial", "-CAserial", "serial")
+	_, err = callCommand("openssl", "x509", "-req", "-in", fqdnReqFile, "-out", fqdnCerFile, "-CAkey", caKeyFile, "-CA", caCerFile, "-days", "365", "-CAcreateserial", "-CAserial", path.Join(fqdnName, "serial"))
 	if err != nil {
 		log.Fatal("Could not create private server certificate")
 	}
-	return hostFile
+	return fqdnKeyFile, fqdnCerFile
 }
 
 func callCommand(command string, arg ...string) (string, error) {
