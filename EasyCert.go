@@ -85,7 +85,7 @@ func createPrivateCA(certificateAuthority string) (string, string) {
 		log.Fatal("Could not create private Certificate Authority key")
 	}
 
-	_, err = callCommand("openssl", "req", "-x509", "-new", "-key", caKeyFile, "-out", caCrtFile, "-days", "730", "-subj", "/CN=\""+certificateAuthority+"\"")
+	_, err = callCommand("openssl", "req", "-x509", "-new", "-key", caKeyFile, "-sha256", "-extensions", "v3_ca", "-out", caCrtFile, "-days", "7300", "-subj", "/CN=\""+certificateAuthority+"\"")
 	if err != nil {
 		log.Fatal("Could not create private Certificate Authority certificate")
 	}
@@ -104,12 +104,12 @@ func createServerCertKey(fqdn, caKeyFile string, caCrtFile string) (string, stri
 		log.Fatal("Could not create private server key")
 	}
 
-	_, err = callCommand("openssl", "req", "-new", "-out", fqdnReqFile, "-key", fqdnKeyFile, "-subj", "/CN="+fqdn)
+	_, err = callCommand("openssl", "req", "-sha256", "-new", "-out", fqdnReqFile, "-key", fqdnKeyFile, "-subj", "/CN="+fqdn)
 	if err != nil {
 		log.Fatal("Could not create private server certificate signing request")
 	}
 
-	_, err = callCommand("openssl", "x509", "-req", "-in", fqdnReqFile, "-out", fqdnCrtFile, "-CAkey", caKeyFile, "-CA", caCrtFile, "-days", "365", "-CAcreateserial", "-CAserial", path.Join(fqdnName, "serial"))
+	_, err = callCommand("openssl", "x509", "-sha256", "-req", "-in", fqdnReqFile, "-out", fqdnCrtFile, "-CAkey", caKeyFile, "-CA", caCrtFile, "-days", "7300", "-CAcreateserial", "-CAserial", path.Join(fqdnName, "serial"))
 	if err != nil {
 		log.Fatal("Could not create private server certificate")
 	}
