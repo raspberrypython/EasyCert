@@ -18,7 +18,7 @@ var (
 	flagFQDN                        = flag.String("fqdn", "", "")
 )
 
-var usage = `Usage: EasyCert [options...]
+var usage = `Usage: easycert [options...]
 
 Options:
   -cn      Certificate Authority Name (can be any name, but should reflect your company name.)
