@@ -20,7 +20,7 @@ Simple as it takes to type the following command:
 
 EasyCert just requires a pre-existing certificate authority certificate and key or simply provide a certificate authority name which can be an arbitrary name but should reflect your company and a host name that the certificate/key pair will end up on.
 ~~~    
-Usage: EasyCert [options...]
+Usage: easycert [options...]
 
 Options:
   -cn      Certificate Authority Name (can be any name, but should reflect your company name.)
